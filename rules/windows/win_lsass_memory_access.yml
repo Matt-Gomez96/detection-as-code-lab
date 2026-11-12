@@ -1,0 +1,47 @@
+title: LSASS Opened With Credential Dumping Access Rights
+id: e83e9e0f-26ee-4d15-ac9a-ee0eae25f671
+status: test
+description: |
+    Detects a process opening lsass.exe with access rights typical of credential
+    dumping (mimikatz, procdump, comsvcs MiniDump, Dumpert, Task Manager "Create dump
+    file"...). LSASS holds the credentials of logged-on users. The rule looks at the
+    access rights, not at the tool name, so renamed or custom dumpers are detected too.
+    Known gap: dumpers that only request 0x1410 (e.g. MalSeclogon) are not detected,
+    because 0x1410 is also common in legitimate monitoring software.
+references:
+    - https://attack.mitre.org/techniques/T1003/001/
+    - https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+logsource:
+    product: windows
+    category: process_access
+detection:
+    selection:
+        TargetImage|endswith: '\lsass.exe'
+        GrantedAccess:
+            - '0x1010'    # read memory + query limited information
+            - '0x1038'
+            - '0x1438'
+            - '0x143a'
+            - '0x1f0fff'  # PROCESS_ALL_ACCESS (older Windows versions)
+            - '0x1f1fff'
+            - '0x1f2fff'
+            - '0x1f3fff'
+            - '0x1fffff'  # PROCESS_ALL_ACCESS
+    # Microsoft Defender, only from its official folders: a MsMpEng.exe anywhere
+    # else still triggers the rule.
+    filter_main_defender:
+        SourceImage|startswith:
+            - 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
+            - 'C:\Program Files\Windows Defender\'
+        SourceImage|endswith: '\MsMpEng.exe'
+    condition: selection and not 1 of filter_main_*
+falsepositives:
+    - Antivirus and EDR agents other than Microsoft Defender (e.g. CrowdStrike Falcon); exclude them by full path per environment
+    - Windows Error Reporting (WerFault.exe) writing a crash dump of LSASS
+    - Administrators or support tools debugging LSASS
+level: high

@@ -17,6 +17,7 @@ rules/*.yml (Sigma) ──► sigma check ──► pySigma ─┬─► Splunk 
 | [Windows Security Event Log Cleared](rules/windows/win_security_log_cleared.yml) → [SPL](splunk/win_security_log_cleared.spl) | [T1685.005](https://attack.mitre.org/techniques/T1685/005/) Clear Windows Event Logs (formerly T1070.001) | Security, event 1102 | high |
 | [Windows Event Log Cleared](rules/windows/win_system_eventlog_cleared.yml) → [SPL](splunk/win_system_eventlog_cleared.spl) | [T1685.005](https://attack.mitre.org/techniques/T1685/005/) Clear Windows Event Logs (formerly T1070.001) | System, event 104 | high |
 | [PowerShell Executed With an Encoded Command](rules/windows/win_powershell_encoded_command.yml) → [SPL](splunk/win_powershell_encoded_command.spl) | [T1059.001](https://attack.mitre.org/techniques/T1059/001/) PowerShell | Process creation (Sysmon 1) | medium |
+| [LSASS Opened With Credential Dumping Access Rights](rules/windows/win_lsass_memory_access.yml) → [SPL](splunk/win_lsass_memory_access.spl) | [T1003.001](https://attack.mitre.org/techniques/T1003/001/) LSASS Memory | Process access (Sysmon 10) | high |
 
 Each rule has a test case in [`tests/cases/`](tests/cases/):
 
@@ -24,7 +25,9 @@ Each rule has a test case in [`tests/cases/`](tests/cases/):
 - **Attack variants** (optional): invented events that must match, covering what the public samples lack (e.g. `-e`, `/enc`, Unicode dashes, renamed `powershell.exe`).
 - **Benign events**: realistic look-alikes that must *not* match (e.g. `-ExecutionPolicy`, which also starts with `-e`; `certutil -encode`), with the reason written next to each one.
 
-Example of why this matters: dropping the trailing space in `' -e '` would make the PowerShell rule fire on every `-ExecutionPolicy Bypass`; the benign tests catch it.
+Example of why this matters: dropping the trailing space in `' -e '` would make the PowerShell rule fire on every `-ExecutionPolicy Bypass`; the benign tests catch it. Rules are also checked with **mutation testing**: deliberately broken versions (e.g. excluding Defender by file name instead of full path) must make at least one test fail.
+
+Known gaps are tested too, so they stay visible: the LSASS rule does not fire on MalSeclogon, which only requests `0x1410` (too common in legitimate monitoring to alert on at high severity), and its test case asserts exactly that.
 
 ## How it works
 
@@ -60,7 +63,7 @@ uv run detlab sql <rule.yml>             # see the SQL the local engine runs
 
 - [x] T1685.005 Clear Windows Event Logs (Security 1102 and System 104)
 - [x] T1059.001 PowerShell with an encoded command
-- [ ] T1003.001 LSASS memory access
+- [x] T1003.001 LSASS memory access
 - [ ] T1543.003 Service creation
 - [ ] T1053.005 Scheduled task creation
 - [ ] Test the generated SPL in Splunk (Docker)

@@ -9,7 +9,7 @@ Un repositorio que demuestra el ciclo completo de detection engineering: reglas 
 - Reglas **Sigma** para técnicas comunes de **MITRE ATT&CK** en Windows:
   - [x] T1685.005 Borrado de logs de eventos (antes T1070.001): Security 1102 y System 104.
   - [x] T1059.001 PowerShell con comando codificado (Sysmon 1).
-  - [ ] T1003.001 Volcado de memoria de LSASS.
+  - [x] T1003.001 Volcado de memoria de LSASS (Sysmon 10).
   - [ ] T1543.003 Creación de servicio.
   - [ ] T1053.005 Tarea programada.
 - Conversión automática de cada regla a **Splunk SPL**.
@@ -63,9 +63,14 @@ Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 
 - `Execution_ProcessID` es el PID del proceso que **escribe** el evento; no confundir con `ProcessId` de `EventData`.
 - `sigma check` valida los tags contra el ATT&CK **vigente** (lo descarga en cada ejecución). Si MITRE revoca una técnica, la CI se pone en rojo. Ya pasó: ATT&CK 20.1 (nov 2026) revocó T1070.001 en favor de T1685.005; TA0005 pasó a llamarse *Stealth* y apareció *Defense Impairment* (TA0112).
 - `process_creation` → el pipeline `sysmon` lo convierte en Sysmon evento 1. Security 4688 **no** está cubierto todavía (haría falta otro pipeline o una regla aparte).
+- `process_access` → Sysmon evento 10 (`SourceImage`, `TargetImage`, `GrantedAccess` en hexadecimal como texto, p. ej. `'0x1fffff'`).
+- Exclusiones siempre por **ruta completa** (`startswith` carpeta + `endswith` ejecutable), nunca solo por nombre. Cada exclusión lleva un `attack_event` con el mismo nombre en otra carpeta.
+- Huecos conocidos: se dejan como muestra con `expected_matches: 0` y un comentario `KNOWN GAP`, para que sigan a la vista.
+- El antivirus del equipo de desarrollo puede bloquear comandos que contengan nombres de herramientas de ataque (p. ej. al hashear muestras). Esos nombres van dentro de scripts o archivos, no en la línea de comandos. No se desactiva el antivirus.
 - `windash` expande `-` a `/`, `–`, `—`, `―`. En Splunk cada variante es un OR más (ver `splunk/win_powershell_encoded_command.spl`).
 - Desfase conocido: los nombres de campo Sigma (`Provider_Name`) no siempre coinciden con los del add-on de Windows de Splunk. Se valida en la fase de Splunk real.
 
 ## Estado
 - 2026-11-12: pipeline montado (validación, conversión a SPL, tests contra EVTX-ATTACK-SAMPLES, CI). Primera técnica completa: T1685.005 (dos reglas). Repo publicado con la CI en verde.
-- 2026-11-12: T1059.001 PowerShell codificado (Image/OriginalFileName + abreviaturas de -EncodedCommand con windash; medium). Tests: 3 logs reales, 6 variantes inventadas, 4 benignos. Nuevo en los casos de test: `attack_events`. Siguiente: T1003.001 (LSASS), T1543.003 o T1053.005.
+- 2026-11-12: T1059.001 PowerShell codificado (Image/OriginalFileName + abreviaturas de -EncodedCommand con windash; medium). Tests: 3 logs reales, 6 variantes inventadas, 4 benignos. Nuevo en los casos de test: `attack_events`.
+- 2026-11-12: T1003.001 acceso a LSASS (Sysmon 10, máscaras de volcado conocidas, Defender excluido por ruta; high). 12 logs reales (10 volcados detectados; MalSeclogon = hueco conocido por 0x1410; `ps` de Meterpreter = descubrimiento, 0), 2 variantes, 4 benignos; 4 mutaciones cazadas. 55 tests. Siguiente: T1543.003 o T1053.005.

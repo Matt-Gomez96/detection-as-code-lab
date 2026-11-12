@@ -1,0 +1,140 @@
+# Test case for rules/windows/win_lsass_memory_access.yml
+#
+# samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
+#                 expected_matches = exact number of events the rule must match.
+# attack_events:  invented attack variants that MUST match (coverage the samples lack).
+# benign_events:  invented but realistic events that must NOT match.
+#
+# All events are Sysmon process access (event 10).
+
+samples:
+  - source: evtx-attack-samples
+    file: Credential Access/sysmon_10_lsass_mimikatz_sekurlsa_logonpasswords.evtx
+    sha256: 9a1689574ed08c1fb18e7ff3f3bed612109aedcb7bf8efbf3537d756e669e96f
+    # mimikatz sekurlsa::logonpasswords, access 0x1010.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Credential Access/sysmon_10_11_lsass_memdump.evtx
+    sha256: 915f0859251552b6c33efc32f6184d2c25419c5859852124a7f14ed6ec1a3723
+    # procdump and Task Manager "Create dump file", access 0x1fffff.
+    expected_matches: 2
+
+  - source: evtx-attack-samples
+    file: Credential Access/sysmon_10_11_outlfank_dumpert_and_andrewspecial_memdump.evtx
+    sha256: f0d11bf8e186947aaf64c3a57debb1b665f518e2dab13acdaafb30c7e8d262af
+    # Dumpert (exe and rundll32 DLL) and AndrewSpecial: direct syscalls, access 0x1fffff.
+    expected_matches: 8
+
+  - source: evtx-attack-samples
+    file: Credential Access/sysmon_2x10_lsass_with_different_pid_RtlCreateProcessReflection.evtx
+    sha256: 7d160c1b636f8eb3642e9c2c15c941c136d9ecbf19116b18b19f981324d44e00
+    # procdump with process reflection (dumps a clone of LSASS), access 0x1fffff.
+    expected_matches: 3
+
+  - source: evtx-attack-samples
+    file: Credential Access/sysmon_3_10_Invoke-Mimikatz_hosted_Github.evtx
+    sha256: 59c28ff11e4b9b329ee6b0859a5514f772913e95ef9ba8f94c46e02c4d78be17
+    # PowerShell mimikatz loaded from GitHub, access 0x143a.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Credential Access/babyshark_mimikatz_powershell.evtx
+    sha256: 3747c33a60a32142bf4e30bf023f155b2c0d6e7a018bce8b7bafbd5aa7ec109c
+    # BabyShark malware running mimikatz in PowerShell, access 0x1010.
+    expected_matches: 2
+
+  - source: evtx-attack-samples
+    file: Credential Access/CA_sysmon_hashdump_cmd_meterpreter.evtx
+    sha256: 897206ca4c3c427753fde880970048494cd5a99be9aaba6154b4e3ac499e24c9
+    # Meterpreter hashdump from a disguised binary, access 0x1f1fff.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Credential Access/ppl_bypass_ppldump_knowdll_hijack_sysmon_security.evtx
+    sha256: 9ac47a1ab7ac5e899dede49a4ea3512f0d3628edb9605981fe78bc0aec6f296f
+    # PPLdump bypasses LSA protection by hijacking services.exe. Only the hijacked
+    # services.exe access with 0x1fffff matches; PPLdump's own 0x1000 accesses and
+    # the 0x1410 one do not (see the 0x1410 gap below).
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Defense Evasion/DE_BYOV_Zam64_CA_Memdump_sysmon_7_10.evtx
+    sha256: 329b2a8c70d43789e03bad581e971c4f84aeb2852c5a7c960fa57454225e5199
+    # Vulnerable driver used to strip LSASS protection, then dump, access 0x1fffff.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: AutomatedTestingTools/PanacheSysmon_vs_AtomicRedTeam01.evtx
+    sha256: 6903dff9f218fa027c704c8c445b74e08b952c8d71be79bd0327f1e792d4aa01
+    # 565 Atomic Red Team events: one PowerShell LSASS access (0x1010).
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Credential Access/tutto_malseclogon.evtx
+    sha256: 7f8651fa3ed49bb02a0760e3b4124e08aa0579d580395ea1b1c8c24332fce092
+    # KNOWN GAP: MalSeclogon dumps LSASS but only requests 0x1410, which is also
+    # common in legitimate monitoring software. Accepted on purpose (see the rule).
+    expected_matches: 0
+
+  - source: evtx-attack-samples
+    file: Discovery/discovery_meterpreter_ps_cmd_process_listing_sysmon_10.evtx
+    sha256: 4a2f88aee90d58fa58fd32a3c1bb31e76cdd1caa4a36f2cfb63b6aa045f60378
+    # Meterpreter "ps" reads every process (LSASS too, 0x1410): discovery, not dumping.
+    expected_matches: 0
+
+attack_events:
+  - name: Renamed procdump
+    why: The rule looks at the access rights, not at the tool name.
+    event:
+      EventID: 10
+      Channel: Microsoft-Windows-Sysmon/Operational
+      SourceImage: C:\Users\Public\update.exe
+      TargetImage: C:\Windows\system32\lsass.exe
+      GrantedAccess: '0x1fffff'
+
+  - name: Fake MsMpEng.exe outside the Defender folders
+    why: The Defender exclusion is by full path, not only by file name.
+    event:
+      EventID: 10
+      Channel: Microsoft-Windows-Sysmon/Operational
+      SourceImage: C:\Users\Public\MsMpEng.exe
+      TargetImage: C:\Windows\system32\lsass.exe
+      GrantedAccess: '0x1fffff'
+
+benign_events:
+  - name: Microsoft Defender scanning LSASS
+    why: Real MsMpEng.exe from its official platform folder.
+    event:
+      EventID: 10
+      Channel: Microsoft-Windows-Sysmon/Operational
+      SourceImage: C:\ProgramData\Microsoft\Windows Defender\Platform\4.18.25090.3009-0\MsMpEng.exe
+      TargetImage: C:\Windows\system32\lsass.exe
+      GrantedAccess: '0x1fffff'
+
+  - name: Query without reading memory (0x1000)
+    why: PROCESS_QUERY_LIMITED_INFORMATION only; cannot read credentials.
+    event:
+      EventID: 10
+      Channel: Microsoft-Windows-Sysmon/Operational
+      SourceImage: C:\Windows\system32\svchost.exe
+      TargetImage: C:\Windows\system32\lsass.exe
+      GrantedAccess: '0x1000'
+
+  - name: WMI provider querying LSASS (0x1410)
+    why: Typical of monitoring and inventory software; the accepted 0x1410 gap.
+    event:
+      EventID: 10
+      Channel: Microsoft-Windows-Sysmon/Operational
+      SourceImage: C:\Windows\system32\wbem\wmiprvse.exe
+      TargetImage: C:\Windows\system32\lsass.exe
+      GrantedAccess: '0x1410'
+
+  - name: Dumping a process that is not LSASS
+    why: Full access to another process (e.g. troubleshooting a hung app).
+    event:
+      EventID: 10
+      Channel: Microsoft-Windows-Sysmon/Operational
+      SourceImage: C:\Tools\procdump64.exe
+      TargetImage: C:\Windows\system32\notepad.exe
+      GrantedAccess: '0x1fffff'
