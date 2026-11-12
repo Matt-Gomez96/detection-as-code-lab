@@ -10,7 +10,7 @@ Un repositorio que demuestra el ciclo completo de detection engineering: reglas 
   - [x] T1685.005 Borrado de logs de eventos (antes T1070.001): Security 1102 y System 104.
   - [x] T1059.001 PowerShell con comando codificado (Sysmon 1).
   - [x] T1003.001 Volcado de memoria de LSASS (Sysmon 10).
-  - [ ] T1543.003 Creación de servicio.
+  - [x] T1543.003 Creación de servicio (System 7045 y Sysmon 13).
   - [ ] T1053.005 Tarea programada.
 - Conversión automática de cada regla a **Splunk SPL**.
 - Tests por regla: muestras de ataque reales (número exacto de coincidencias), variantes de ataque inventadas que deben disparar y eventos benignos parecidos que no.
@@ -54,7 +54,7 @@ datasets.yml                origen, licencia y commit fijado de cada dataset
 2. Escribir `rules/windows/<nombre>.yml` (UUID nuevo, tags de ATT&CK vigentes).
 3. Crear `tests/cases/<nombre>.yml`: muestras (`sha256` + `expected_matches`), `attack_events` opcionales (variantes que deben disparar) y `benign_events` (`name`, `why`, `event`). Los eventos inventados llevan `Channel` y `EventID` reales (p. ej. Sysmon 1), porque el pipeline los exige.
 4. `uv run detlab convert`, `uv run sigma check --fail-on-issues rules/`, `uv run pytest`.
-5. Opcional: *mutation testing*, es decir, estropear la regla a propósito (quitar un filtro, un espacio…) y comprobar que algún test falla.
+5. *Mutation testing*: estropear la regla a propósito (quitar un filtro, un indicador, un espacio…) y comprobar que algún test falla. Si ninguno falla, o falta un test (se añade) o el indicador no aporta nada (se quita). Por ahora se hace con un script fuera del repo; integrarlo en la CI es una idea pendiente.
 
 Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 MB) en una carpeta temporal y recorrer los `.evtx` con `detlab.events.load_evtx` buscando el patrón.
 
@@ -67,10 +67,15 @@ Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 
 - Exclusiones siempre por **ruta completa** (`startswith` carpeta + `endswith` ejecutable), nunca solo por nombre. Cada exclusión lleva un `attack_event` con el mismo nombre en otra carpeta.
 - Huecos conocidos: se dejan como muestra con `expected_matches: 0` y un comentario `KNOWN GAP`, para que sigan a la vista.
 - El antivirus del equipo de desarrollo puede bloquear comandos que contengan nombres de herramientas de ataque (p. ej. al hashear muestras). Esos nombres van dentro de scripts o archivos, no en la línea de comandos. No se desactiva el antivirus.
+- `registry_set` → Sysmon evento 13 (`TargetObject` = clave, `Details` = valor). Para claves de servicio se usa `ControlSet` y no solo `CurrentControlSet`, porque se puede escribir en `ControlSet001`.
+- Lista de mapas en una selección (`- campo1: … / - campo2: …`) = OR entre ellos. `campo|contains|all` = todos los valores a la vez.
+- Nombres cortos como `cmd` no se buscan como subcadena suelta (casarían con `remotecmd.exe`): al principio (`startswith`) o detrás de `\`.
+- Condiciones defensivas sin test que las aísle (p. ej. `Provider_Name` en 1102/104/7045): se aceptan y se documentan, por coherencia con lo que decidió Matt en la primera regla.
 - `windash` expande `-` a `/`, `–`, `—`, `―`. En Splunk cada variante es un OR más (ver `splunk/win_powershell_encoded_command.spl`).
 - Desfase conocido: los nombres de campo Sigma (`Provider_Name`) no siempre coinciden con los del add-on de Windows de Splunk. Se valida en la fase de Splunk real.
 
 ## Estado
 - 2026-11-12: pipeline montado (validación, conversión a SPL, tests contra EVTX-ATTACK-SAMPLES, CI). Primera técnica completa: T1685.005 (dos reglas). Repo publicado con la CI en verde.
 - 2026-11-12: T1059.001 PowerShell codificado (Image/OriginalFileName + abreviaturas de -EncodedCommand con windash; medium). Tests: 3 logs reales, 6 variantes inventadas, 4 benignos. Nuevo en los casos de test: `attack_events`.
-- 2026-11-12: T1003.001 acceso a LSASS (Sysmon 10, máscaras de volcado conocidas, Defender excluido por ruta; high). 12 logs reales (10 volcados detectados; MalSeclogon = hueco conocido por 0x1410; `ps` de Meterpreter = descubrimiento, 0), 2 variantes, 4 benignos; 4 mutaciones cazadas. 55 tests. Siguiente: T1543.003 o T1053.005.
+- 2026-11-12: T1003.001 acceso a LSASS (Sysmon 10, máscaras de volcado conocidas, Defender excluido por ruta; high). 12 logs reales (10 volcados detectados; MalSeclogon = hueco conocido por 0x1410; `ps` de Meterpreter = descubrimiento, 0), 2 variantes, 4 benignos; 4 mutaciones cazadas. 55 tests.
+- 2026-11-12: T1543.003 creación de servicio: dos reglas con la misma lógica (System 7045 y Sysmon 13 `ImagePath`) para `ImagePath` con intérpretes o carpetas de usuario; high. El mutation testing añadió la variante `cmd /c` y eliminó el indicador `\pipe\`. Huecos conocidos: `calc.exe`, AtomicService en carpeta no estándar; fuera de alcance: PsExec y driver vulnerable. 82 tests. Siguiente: T1053.005 (último del MVP).

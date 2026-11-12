@@ -1,0 +1,102 @@
+# Test case for rules/windows/win_system_service_install_suspicious.yml
+#
+# samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
+#                 expected_matches = exact number of events the rule must match.
+# attack_events:  invented attack variants that MUST match (coverage the samples lack).
+# benign_events:  invented but realistic events that must NOT match.
+#
+# All events are System 7045 "A service was installed in the system".
+
+samples:
+  - source: evtx-attack-samples
+    file: Lateral Movement/LM_Remote_Service02_7045.evtx
+    sha256: af758eb492b6d5ab6665f7e4c44b31490f57be78c37dc0a8b1da714bb0d3d458
+    # Three services created remotely as LocalSystem: two run cmd.exe (match).
+    # KNOWN GAP: the third runs calc.exe, which no generic rule can tell from a real
+    # program without an allowlist of the environment's services.
+    expected_matches: 2
+
+  - source: evtx-attack-samples
+    file: Privilege Escalation/System_7045_namedpipe_privesc.evtx
+    sha256: 21a62694861beff246ea9fb357b908541b4acefaefdb7ecd6281b64df96cb187
+    # Privilege escalation: a service runs %COMSPEC% and writes to a named pipe.
+    expected_matches: 1
+
+attack_events:
+  - name: Cobalt Strike style service
+    why: Service that starts hidden PowerShell with an encoded command.
+    event:
+      EventID: 7045
+      Channel: System
+      Provider_Name: Service Control Manager
+      ServiceName: 7f3e2a1
+      ImagePath: '%COMSPEC% /b /c start /b /min powershell -nop -w hidden -encodedcommand VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA=='
+      StartType: demand start
+      AccountName: LocalSystem
+
+  - name: System name in a user folder
+    why: A "svchost.exe" that lives in C:\Users\Public\ is not the real one.
+    event:
+      EventID: 7045
+      Channel: System
+      Provider_Name: Service Control Manager
+      ServiceName: WinSvcHost
+      ImagePath: C:\Users\Public\svchost.exe
+      StartType: auto start
+      AccountName: LocalSystem
+
+  - name: Bare "cmd /c" with no other indicator
+    why: Only the "cmd at the start" condition can catch it (found by mutation testing).
+    event:
+      EventID: 7045
+      Channel: System
+      Provider_Name: Service Control Manager
+      ServiceName: BackupHelper
+      ImagePath: cmd /c net localgroup administrators svc_backup /add
+      StartType: demand start
+      AccountName: LocalSystem
+
+benign_events:
+  - name: Vendor agent in Program Files
+    why: Typical legitimate service, quoted path under Program Files.
+    event:
+      EventID: 7045
+      Channel: System
+      Provider_Name: Service Control Manager
+      ServiceName: ContosoAgent
+      ImagePath: '"C:\Program Files\Contoso\Agent\agent.exe" --service'
+      StartType: auto start
+      AccountName: LocalSystem
+
+  - name: Windows shared service host
+    why: svchost.exe from System32 hosting a service group.
+    event:
+      EventID: 7045
+      Channel: System
+      Provider_Name: Service Control Manager
+      ServiceName: ContosoSync
+      ImagePath: C:\Windows\system32\svchost.exe -k netsvcs -p
+      StartType: demand start
+      AccountName: LocalSystem
+
+  - name: Kernel driver
+    why: Drivers use relative paths under system32\DRIVERS.
+    event:
+      EventID: 7045
+      Channel: System
+      Provider_Name: Service Control Manager
+      ServiceName: contosoflt
+      ImagePath: system32\DRIVERS\contosoflt.sys
+      StartType: boot start
+      AccountName: ''
+
+  - name: Program whose name contains "cmd.exe"
+    why: remotecmd.exe is not cmd.exe; "cmd" must not be matched as a loose substring.
+    event:
+      EventID: 7045
+      Channel: System
+      Provider_Name: Service Control Manager
+      ServiceName: VendorRemoteCmd
+      ImagePath: C:\Program Files\Vendor\remotecmd.exe
+      StartType: auto start
+      AccountName: LocalSystem

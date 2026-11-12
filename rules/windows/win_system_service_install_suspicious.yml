@@ -1,0 +1,58 @@
+title: Suspicious Service Installed
+id: de3cc3ee-5878-4e37-b552-6a889c01c464
+status: test
+description: |
+    Detects the installation of a Windows service (System event 7045) whose binary
+    path runs a command interpreter or script host, or lives in a user-writable
+    folder. Legitimate services run a program from Program Files or Windows; tools
+    such as PsExec-like lateral movement (Impacket, Metasploit, Cobalt Strike) and
+    "getsystem" named-pipe privilege escalation create services like these.
+    Companion rule: win_registry_service_imagepath_suspicious (Sysmon 13), same logic.
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+    - https://attack.mitre.org/techniques/T1569/002/
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.003
+    - attack.execution
+    - attack.t1569.002
+logsource:
+    product: windows
+    service: system
+detection:
+    selection_event:
+        EventID: 7045
+        Provider_Name: Service Control Manager
+    selection_image_path:
+        # cmd.exe only at the start or after a backslash: "cmd" alone is too short
+        # (it would match C:\Program Files\Vendor\remotecmd.exe).
+        - ImagePath|startswith:
+              - 'cmd.exe'
+              - 'cmd '
+              - '"cmd.exe'
+        - ImagePath|contains:
+              # Command interpreters and script hosts
+              - '\cmd.exe'
+              - '%COMSPEC%'
+              - 'powershell'
+              - 'pwsh'
+              - 'mshta'
+              - 'rundll32'
+              - 'regsvr32'
+              - 'wscript'
+              - 'cscript'
+              # User-writable folders
+              - '\Users\Public\'
+              - '\AppData\'
+              - '\Temp\'
+              - '\Desktop\'
+              - '\Downloads\'
+              - '\PerfLogs\'
+    condition: selection_event and selection_image_path
+falsepositives:
+    - Installers or uninstallers that create a temporary service from a Temp folder
+    - Administration tools that wrap a script in a service
+level: high

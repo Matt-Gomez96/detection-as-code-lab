@@ -1,0 +1,61 @@
+title: Suspicious Service ImagePath Set in the Registry
+id: b2fcd550-35ed-4f7a-9913-630c343d865c
+status: test
+description: |
+    Detects a service ImagePath registry value (Sysmon event 13) that runs a command
+    interpreter or script host, or points to a user-writable folder. It sees
+    services created through the Service Control Manager and also
+    services written straight into the registry (e.g. with reg.exe), which do not
+    produce System event 7045.
+    Companion rule: win_system_service_install_suspicious (System 7045), same logic.
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+    - https://attack.mitre.org/techniques/T1569/002/
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.003
+    - attack.execution
+    - attack.t1569.002
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    selection_key:
+        # Any control set (CurrentControlSet, ControlSet001...), not only the usual one.
+        TargetObject|contains|all:
+            - 'ControlSet'
+            - '\Services\'
+        TargetObject|endswith: '\ImagePath'
+    selection_image_path:
+        # cmd.exe only at the start or after a backslash: "cmd" alone is too short
+        # (it would match C:\Program Files\Vendor\remotecmd.exe).
+        - Details|startswith:
+              - 'cmd.exe'
+              - 'cmd '
+              - '"cmd.exe'
+        - Details|contains:
+              # Command interpreters and script hosts
+              - '\cmd.exe'
+              - '%COMSPEC%'
+              - 'powershell'
+              - 'pwsh'
+              - 'mshta'
+              - 'rundll32'
+              - 'regsvr32'
+              - 'wscript'
+              - 'cscript'
+              # User-writable folders
+              - '\Users\Public\'
+              - '\AppData\'
+              - '\Temp\'
+              - '\Desktop\'
+              - '\Downloads\'
+              - '\PerfLogs\'
+    condition: all of selection_*
+falsepositives:
+    - Installers or uninstallers that create a temporary service from a Temp folder
+    - Administration tools that wrap a script in a service
+level: high

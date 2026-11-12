@@ -1,0 +1,123 @@
+# Test case for rules/windows/win_registry_service_imagepath_suspicious.yml
+#
+# samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
+#                 expected_matches = exact number of events the rule must match.
+# attack_events:  invented attack variants that MUST match (coverage the samples lack).
+# benign_events:  invented but realistic events that must NOT match.
+#
+# All events are Sysmon registry value set (event 13) on a service's ImagePath.
+
+samples:
+  - source: evtx-attack-samples
+    file: Lateral Movement/LM_sysmon_psexec_smb_meterpreter.evtx
+    sha256: 18ffdda9c24e593d6b1414b6e05c7f7a5dbffb8588a387c165431b61ab52d76f
+    # Metasploit psexec: the service runs %COMSPEC% ... powershell.exe -nop -w hidden.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Privilege Escalation/sysmon_13_1_meterpreter_getsystem_NamedPipeImpersonation.evtx
+    sha256: 9e1fbb0604db5e559c1f65d51b85c35625f6a43d071598f161dd32f70d597722
+    # Meterpreter getsystem: the service runs "cmd.exe /c echo ... > \\.\pipe\...".
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Defense Evasion/apt10_jjs_sideloading_prochollowing_persist_as_service_sysmon_1_7_8_13.evtx
+    sha256: a623b11315eacd9732da5ebeabdb7c72d0f641fdf0ec5d2ec43e360abd13837e
+    # APT10-style persistence: service binary on the user's Desktop.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: AutomatedTestingTools/PanacheSysmon_vs_AtomicRedTeam01.evtx
+    sha256: 6903dff9f218fa027c704c8c445b74e08b952c8d71be79bd0327f1e792d4aa01
+    # KNOWN GAP: Atomic Red Team's test service lives in C:\AtomicRedTeam\..., a plain
+    # program in a non-standard folder. Catching it needs an allowlist of the
+    # environment's service paths, which a generic rule cannot have.
+    expected_matches: 0
+
+  - source: evtx-attack-samples
+    file: Persistence/persist_valid_account_guest_rid_hijack.evtx
+    sha256: 5f482d8f769d13b4d90cdbfb114924fe3890e78eb1d0a619219e88a99a6f0f6e
+    # Out of scope: Sysinternals PsExec (%SystemRoot%\PSEXESVC.exe) is also a common
+    # admin tool; it deserves its own rule with environment context.
+    expected_matches: 0
+
+  - source: evtx-attack-samples
+    file: Defense Evasion/DSE_bypass_BYOV_TDL_dummydriver_sysmon_6_7_13.evtx
+    sha256: 1162521cb06986ddef24bff7c044b05d63f37ea8faeaa6acd8cc2529b05c7618
+    # Out of scope: a signed but vulnerable driver (bring your own vulnerable driver)
+    # in system32\drivers. Detecting it needs a list of known vulnerable drivers.
+    expected_matches: 0
+
+attack_events:
+  - name: Cobalt Strike style service
+    why: Service that starts hidden PowerShell with an encoded command.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\7f3e2a1\ImagePath
+      Details: '%COMSPEC% /b /c start /b /min powershell -nop -w hidden -encodedcommand VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA=='
+
+  - name: System name in a user folder
+    why: A "svchost.exe" that lives in C:\Users\Public\ is not the real one.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\WinSvcHost\ImagePath
+      Details: C:\Users\Public\svchost.exe
+
+  - name: Service written with reg.exe into ControlSet001
+    why: Writing the registry directly (no 7045) and using another control set name.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\reg.exe
+      TargetObject: HKLM\System\ControlSet001\Services\UpdaterSvc\ImagePath
+      Details: cmd.exe /c C:\Windows\Temp\update.bat
+
+  - name: Bare "cmd /c" with no other indicator
+    why: Only the "cmd at the start" condition can catch it (found by mutation testing).
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\BackupHelper\ImagePath
+      Details: cmd /c net localgroup administrators svc_backup /add
+
+benign_events:
+  - name: Vendor agent in Program Files
+    why: Typical legitimate service, quoted path under Program Files.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\ContosoAgent\ImagePath
+      Details: '"C:\Program Files\Contoso\Agent\agent.exe" --service'
+
+  - name: Windows shared service host
+    why: svchost.exe from System32 hosting a service group.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\ContosoSync\ImagePath
+      Details: C:\Windows\system32\svchost.exe -k netsvcs -p
+
+  - name: Kernel driver
+    why: Drivers use paths under system32\DRIVERS.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\contosoflt\ImagePath
+      Details: \SystemRoot\System32\drivers\contosoflt.sys
+
+  - name: Program whose name contains "cmd.exe"
+    why: remotecmd.exe is not cmd.exe; "cmd" must not be matched as a loose substring.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\VendorRemoteCmd\ImagePath
+      Details: C:\Program Files\Vendor\remotecmd.exe
