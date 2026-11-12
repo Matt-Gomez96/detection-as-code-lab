@@ -20,6 +20,10 @@ rules/*.yml (Sigma) ──► sigma check ──► pySigma ─┬─► Splunk 
 | [LSASS Opened With Credential Dumping Access Rights](rules/windows/win_lsass_memory_access.yml) → [SPL](splunk/win_lsass_memory_access.spl) | [T1003.001](https://attack.mitre.org/techniques/T1003/001/) LSASS Memory | Process access (Sysmon 10) | high |
 | [Suspicious Service Installed](rules/windows/win_system_service_install_suspicious.yml) → [SPL](splunk/win_system_service_install_suspicious.spl) | [T1543.003](https://attack.mitre.org/techniques/T1543/003/) Windows Service, [T1569.002](https://attack.mitre.org/techniques/T1569/002/) Service Execution | System, event 7045 | high |
 | [Suspicious Service ImagePath Set in the Registry](rules/windows/win_registry_service_imagepath_suspicious.yml) → [SPL](splunk/win_registry_service_imagepath_suspicious.spl) | [T1543.003](https://attack.mitre.org/techniques/T1543/003/) Windows Service, [T1569.002](https://attack.mitre.org/techniques/T1569/002/) Service Execution | Registry value set (Sysmon 13) | high |
+| [Suspicious Scheduled Task Created or Modified](rules/windows/win_security_scheduled_task_suspicious.yml) → [SPL](splunk/win_security_scheduled_task_suspicious.spl) | [T1053.005](https://attack.mitre.org/techniques/T1053/005/) Scheduled Task | Security, events 4698 / 4702 | high |
+| [Suspicious Scheduled Task Created or Modified With schtasks.exe](rules/windows/win_schtasks_suspicious_task.yml) → [SPL](splunk/win_schtasks_suspicious_task.spl) | [T1053.005](https://attack.mitre.org/techniques/T1053/005/) Scheduled Task | Process creation (Sysmon 1) | high |
+
+**8 rules, 5 ATT&CK techniques, 110 tests**: 33 public attack logs, 22 invented attack variants and 25 benign look-alikes. Every change runs them all in CI.
 
 Each rule has a test case in [`tests/cases/`](tests/cases/):
 
@@ -67,7 +71,8 @@ uv run detlab sql <rule.yml>             # see the SQL the local engine runs
 - [x] T1059.001 PowerShell with an encoded command
 - [x] T1003.001 LSASS memory access
 - [x] T1543.003 Service creation (System 7045 and Sysmon 13)
-- [ ] T1053.005 Scheduled task creation
+- [x] T1053.005 Scheduled task creation and hijacking (Security 4698/4702 and schtasks.exe)
+- [ ] Mutation testing in CI (each test case declares its mutations; all must be caught)
 - [ ] Test the generated SPL in Splunk (Docker)
 - [ ] ATT&CK Navigator coverage layer
 

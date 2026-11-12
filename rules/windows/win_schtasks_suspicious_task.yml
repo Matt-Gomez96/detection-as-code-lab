@@ -1,0 +1,62 @@
+title: Suspicious Scheduled Task Created or Modified With schtasks.exe
+id: aac448a1-7f5e-40a3-b66f-ec954b3a9347
+status: test
+description: |
+    Detects schtasks.exe creating a task (/create) or changing an existing one
+    (/change, e.g. hijacking a built-in task) when the command line runs a command
+    interpreter or script host, or uses a user-writable folder (including a task
+    XML imported from one, as in "/xml C:\Users\...\AppData\Local\Temp\x.xml").
+    Only schtasks.exe itself is checked, so "cmd /c schtasks ..." counts once.
+    Companion rule: win_security_scheduled_task_suspicious (4698/4702), which also
+    sees tasks created without schtasks.exe.
+references:
+    - https://attack.mitre.org/techniques/T1053/005/
+    - https://learn.microsoft.com/en-us/windows/win32/taskschd/schtasks
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.execution
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1053.005
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_img:
+        - Image|endswith: '\schtasks.exe'
+        - OriginalFileName: 'schtasks.exe'
+    # Only verbs that set the task's action; /run, /query or /delete of a task whose
+    # name mentions an indicator (e.g. ...\PowerShell\ScheduledJobs\...) must not match.
+    selection_verb:
+        CommandLine|windash|contains:
+            - ' -create'
+            - ' -change'
+    selection_action:
+        CommandLine|contains:
+            # cmd.exe as the task action: after a space or quote, or by path; "cmd"
+            # alone is too short (it would match remotecmd.exe).
+            - ' cmd'
+            - '"cmd'
+            - '\cmd.exe'
+            # Other command interpreters and script hosts
+            - '%COMSPEC%'
+            - 'powershell'
+            - 'pwsh'
+            - 'mshta'
+            - 'rundll32'
+            - 'regsvr32'
+            - 'wscript'
+            - 'cscript'
+            # User-writable folders
+            - '\Users\Public\'
+            - '\AppData\'
+            - '\Temp\'
+            - '\Desktop\'
+            - '\Downloads\'
+            - '\PerfLogs\'
+    condition: all of selection_*
+falsepositives:
+    - Software installers that schedule scripts (PowerShell, cmd) for maintenance
+    - Administrators scheduling scripts from their profile folders
+level: high

@@ -1,0 +1,126 @@
+# Test case for rules/windows/win_schtasks_suspicious_task.yml
+#
+# samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
+#                 expected_matches = exact number of events the rule must match.
+# attack_events:  invented attack variants that MUST match (coverage the samples lack).
+# benign_events:  invented but realistic events that must NOT match.
+#
+# All events are Sysmon process creation (event 1) of schtasks.exe.
+
+samples:
+  - source: evtx-attack-samples
+    file: Execution/exec_persist_rundll32_mshta_scheduledtask_sysmon_1_3_11.evtx
+    sha256: fb5679aec77dc45a35902f705b513811dfea0f2f93c9c8503464a20270c3222f
+    # Malware persistence: hourly task running "mshta.exe https://...".
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Execution/sysmon_exec_from_vss_persistence.evtx
+    sha256: 9abd2bd89115f77f79a96d0ffcc0b1cdb238d2c6d3edcaf24abddc50ee405964
+    # Task running a binary hidden in a volume shadow copy (...\Windows\Temp\).
+    # Its parent "cmd.exe /c ...schtasks.exe /create" is not schtasks.exe: counted once.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: AutomatedTestingTools/Malware/rundll32_cmd_schtask.evtx
+    sha256: 4ee3de8ac48d973a800666c3e1d757d11eaf9a960e7144db566bb51d903b4b09
+    # Malware importing the task definition from an XML file in AppData\Local\Temp.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Privilege Escalation/sysmon_1_11_exec_as_system_via_schedtask.evtx
+    sha256: 6b2ae54c6e3926f62101c2f8f85e7003869de534af1b17d309a0a84298e70edd
+    # Run as SYSTEM through a task imported from AppData\Local\Temp: only the /create
+    # matches; the /run and /delete that follow do not.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: AutomatedTestingTools/PanacheSysmon_vs_AtomicRedTeam01.evtx
+    sha256: 6903dff9f218fa027c704c8c445b74e08b952c8d71be79bd0327f1e792d4aa01
+    # Atomic Red Team: two tasks that run C:\windows\system32\cmd.exe.
+    expected_matches: 2
+
+  - source: evtx-attack-samples
+    file: AutomatedTestingTools/panache_sysmon_vs_EDRTestingScript.evtx
+    sha256: 9c1371a0632de15095b6ffe2e38991b764d4beaddb1722178e93aa476f83f52f
+    # KNOWN GAP: task running C:\windows\system32\calc.exe as SYSTEM at logon. A plain
+    # program from System32; telling it apart needs context of the environment.
+    expected_matches: 0
+
+  - source: evtx-attack-samples
+    file: Privilege Escalation/Sysmon_UACME_34.evtx
+    sha256: d3b277e1165eec22392054022ed239d68adfcd654b663076fec062e20c8ea336
+    # Out of scope: "schtasks /run" of the built-in SilentCleanup task (a UAC bypass
+    # through an environment variable). Nothing is created.
+    expected_matches: 0
+
+  - source: evtx-attack-samples
+    file: Persistence/persistence_sysmon_11_13_1_shime_appfix.evtx
+    sha256: 799420511f35300d3a071ca2c047d2edd49324d24544214a8124babe3fee9f90
+    # 237 events, including a Windows component deleting one of its tasks (/delete).
+    expected_matches: 0
+
+attack_events:
+  - name: Hidden encoded PowerShell
+    why: Task running PowerShell hidden with an encoded command.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\schtasks.exe
+      OriginalFileName: schtasks.exe
+      CommandLine: 'schtasks /create /tn "OneDrive Sync" /tr "powershell -w hidden -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA==" /sc onlogon /ru SYSTEM /f'
+
+  - name: Binary in AppData at logon
+    why: Persistence from a user-writable folder.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\schtasks.exe
+      OriginalFileName: schtasks.exe
+      CommandLine: schtasks.exe /create /tn Updater /tr C:\Users\jdoe\AppData\Roaming\updater.exe /sc onlogon
+
+  - name: Bare "cmd /c" with no other indicator
+    why: Only the cmd conditions can catch it.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\schtasks.exe
+      OriginalFileName: schtasks.exe
+      CommandLine: 'schtasks /create /tn Backup /tr "cmd /c net localgroup administrators support /add" /sc once /st 23:00'
+
+  - name: Built-in task hijacked with /change
+    why: Changing the action of an existing Windows task (the 4702 rule sees it too).
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\schtasks.exe
+      OriginalFileName: schtasks.exe
+      CommandLine: 'schtasks /change /tn "\Microsoft\Windows\Defrag\ScheduledDefrag" /tr "powershell -w hidden -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA=="'
+
+benign_events:
+  - name: Running a PowerShell scheduled job
+    why: /run sets no action; the task name contains "PowerShell" (PowerShell scheduled jobs live there).
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\schtasks.exe
+      OriginalFileName: schtasks.exe
+      CommandLine: 'schtasks /run /tn "\Microsoft\Windows\PowerShell\ScheduledJobs\NightlyReport"'
+
+  - name: Software updater in Program Files
+    why: Typical legitimate task, a vendor updater that runs daily.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\schtasks.exe
+      OriginalFileName: schtasks.exe
+      CommandLine: 'schtasks.exe /create /tn ContosoUpdate /tr "\"C:\Program Files (x86)\Contoso\Update\ContosoUpdate.exe\" /ua" /sc daily /st 09:00 /f'
+
+  - name: Program whose name contains "cmd.exe"
+    why: remotecmd.exe is not cmd.exe; "cmd" must not be matched as a loose substring.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\schtasks.exe
+      OriginalFileName: schtasks.exe
+      CommandLine: 'schtasks /create /tn VendorRemote /tr "C:\Program Files\Vendor\remotecmd.exe" /sc onstart /ru SYSTEM'

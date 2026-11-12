@@ -1,0 +1,84 @@
+# Test case for rules/windows/win_security_scheduled_task_suspicious.yml
+#
+# samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
+#                 expected_matches = exact number of events the rule must match.
+# attack_events:  invented attack variants that MUST match (coverage the samples lack).
+# benign_events:  invented but realistic events that must NOT match.
+#
+# Events are Security 4698 (task created, XML in TaskContent) or 4702 (task updated,
+# XML in TaskContentNew). Invented XML is shortened to the parts that matter.
+
+samples:
+  - source: evtx-attack-samples
+    file: Lateral Movement/LM_ScheduledTask_ATSVC_target_host.evtx
+    sha256: 53999570b8edb7f909cb07165fecda1f29bf04e3462d13dc404e31f31a9ab932
+    # Impacket atexec on the target: remote task running "cmd.exe /C tasklist >
+    # %windir%\Temp\X.tmp". No schtasks.exe runs here. The deletion (4699) does not match.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Privilege Escalation/PrivEsc_SeImpersonatePriv_enabled_back_for_upnp_localsvc_4698.evtx
+    sha256: d6840c8618b24ef671a9810daad60cbd1e12dafe35fba300f5bc54d71a94156a
+    # FullPowers: a task run from C:\Users\Public\Tools\ to regain service privileges.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Lateral Movement/remote task update 4624 4702 same logonid.evtx
+    sha256: 82ef6ef9e7616c441e79059fcad9ea7b53358431769e924a0bba6408ecba5fce
+    # Existing task hijacked remotely (4702): its action becomes "cmd.exe /c echo ... >
+    # c:\users\public\out.txt".
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Credential Access/ACL_ForcePwd_SPNAdd_User_Computer_Accounts.evtx
+    sha256: f09f993909deb7acdae4c4f6f48e5a8447487e89437873fd8e653436a3dce36c
+    # Real benign activity in a domain controller log: Windows updates its own
+    # SvcRestartTask four times (4702). Must stay silent.
+    expected_matches: 0
+
+attack_events:
+  - name: Hidden encoded PowerShell
+    why: Task running PowerShell hidden with an encoded command.
+    event:
+      EventID: 4698
+      Channel: Security
+      Provider_Name: Microsoft-Windows-Security-Auditing
+      TaskName: \OneDrive Sync
+      TaskContent: '<?xml version="1.0" encoding="UTF-16"?><Task version="1.2"><Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers><Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-nop -w hidden -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA==</Arguments></Exec></Actions></Task>'
+
+  - name: Binary in AppData at logon
+    why: Persistence from a user-writable folder.
+    event:
+      EventID: 4698
+      Channel: Security
+      Provider_Name: Microsoft-Windows-Security-Auditing
+      TaskName: \Updater
+      TaskContent: '<?xml version="1.0" encoding="UTF-16"?><Task version="1.2"><Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers><Actions Context="Author"><Exec><Command>C:\Users\jdoe\AppData\Roaming\updater.exe</Command></Exec></Actions></Task>'
+
+  - name: Bare cmd.exe with no other indicator (4702)
+    why: Only the "<Command>cmd" condition can catch it; also covers TaskContentNew.
+    event:
+      EventID: 4702
+      Channel: Security
+      Provider_Name: Microsoft-Windows-Security-Auditing
+      TaskName: \Microsoft\Windows\Maintenance\Backup
+      TaskContentNew: '<?xml version="1.0" encoding="UTF-16"?><Task version="1.2"><Actions Context="Author"><Exec><Command>cmd.exe</Command><Arguments>/c net localgroup administrators support /add</Arguments></Exec></Actions></Task>'
+
+benign_events:
+  - name: Software updater in Program Files
+    why: Typical legitimate task, a vendor updater that runs daily.
+    event:
+      EventID: 4698
+      Channel: Security
+      Provider_Name: Microsoft-Windows-Security-Auditing
+      TaskName: \ContosoUpdateTaskMachineUA
+      TaskContent: '<?xml version="1.0" encoding="UTF-16"?><Task version="1.2"><Triggers><CalendarTrigger><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger></Triggers><Actions Context="Author"><Exec><Command>"C:\Program Files (x86)\Contoso\Update\ContosoUpdate.exe"</Command><Arguments>/ua /installsource scheduler</Arguments></Exec></Actions></Task>'
+
+  - name: Program whose name contains "cmd.exe"
+    why: remotecmd.exe is not cmd.exe; "cmd" must not be matched as a loose substring.
+    event:
+      EventID: 4698
+      Channel: Security
+      Provider_Name: Microsoft-Windows-Security-Auditing
+      TaskName: \VendorRemoteCmd
+      TaskContent: '<?xml version="1.0" encoding="UTF-16"?><Task version="1.2"><Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers><Actions Context="Author"><Exec><Command>C:\Program Files\Vendor\remotecmd.exe</Command></Exec></Actions></Task>'

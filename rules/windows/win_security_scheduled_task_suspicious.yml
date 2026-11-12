@@ -1,0 +1,62 @@
+title: Suspicious Scheduled Task Created or Modified
+id: 203c7618-cb75-4b46-be75-eb0e295e9636
+status: test
+description: |
+    Detects a scheduled task created (Security event 4698) or modified (4702) whose
+    definition runs a command interpreter or script host, or uses a user-writable
+    folder. The events contain the full task XML, so this sees every way of creating
+    a task: schtasks.exe, PowerShell, the COM API and remote creation (e.g. Impacket
+    atexec), where no schtasks.exe runs on the target. 4702 catches attackers who
+    hijack an existing task by changing its action.
+    Requires the audit policy "Audit Other Object Access Events".
+    Companion rule: win_schtasks_suspicious_task (Sysmon 1), same indicators.
+references:
+    - https://attack.mitre.org/techniques/T1053/005/
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4698
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.execution
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1053.005
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_event:
+        EventID:
+            - 4698  # task created (XML in TaskContent)
+            - 4702  # task updated (new XML in TaskContentNew)
+        Provider_Name: Microsoft-Windows-Security-Auditing
+    selection_task_xml:
+        # The same list for both fields: "&indicators" names it, "*indicators" reuses it.
+        - TaskContent|contains: &indicators
+              # cmd.exe as the task command (start of <Command>) or by path; "cmd"
+              # alone is too short (it would match remotecmd.exe).
+              - '<Command>cmd'
+              - '<Command>"cmd'
+              - '\cmd.exe'
+              # Other command interpreters and script hosts
+              - '%COMSPEC%'
+              - 'powershell'
+              - 'pwsh'
+              - 'mshta'
+              - 'rundll32'
+              - 'regsvr32'
+              - 'wscript'
+              - 'cscript'
+              # User-writable folders
+              - '\Users\Public\'
+              - '\AppData\'
+              - '\Temp\'
+              - '\Desktop\'
+              - '\Downloads\'
+              - '\PerfLogs\'
+        - TaskContentNew|contains: *indicators
+    condition: all of selection_*
+falsepositives:
+    - Windows Update re-registering built-in tasks whose action uses rundll32.exe
+    - Software that schedules scripts (PowerShell, cmd) for maintenance
+    - The indicators are searched in the whole task XML, so a description or working directory that mentions them also matches
+level: high

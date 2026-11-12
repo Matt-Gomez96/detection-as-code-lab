@@ -11,13 +11,14 @@ Un repositorio que demuestra el ciclo completo de detection engineering: reglas 
   - [x] T1059.001 PowerShell con comando codificado (Sysmon 1).
   - [x] T1003.001 Volcado de memoria de LSASS (Sysmon 10).
   - [x] T1543.003 Creación de servicio (System 7045 y Sysmon 13).
-  - [ ] T1053.005 Tarea programada.
+  - [x] T1053.005 Tarea programada (Security 4698/4702 y schtasks en Sysmon 1).
 - Conversión automática de cada regla a **Splunk SPL**.
 - Tests por regla: muestras de ataque reales (número exacto de coincidencias), variantes de ataque inventadas que deben disparar y eventos benignos parecidos que no.
 - **GitHub Actions**: en cada cambio valida, convierte y ejecuta los tests.
 - README en inglés que se entiende en 2 minutos.
 
 ## Fuera del MVP (fases siguientes)
+- Mutation testing en la CI: un apartado `mutations:` en cada caso de test y un test que exija que todas se cacen (hoy es un script fuera del repo).
 - Splunk real en Docker para probar el SPL generado (y cerrar el desfase de nombres de campo Sigma ↔ Splunk).
 - Más reglas y fuentes de logs (Sysmon, Linux, cloud).
 - Mapa de cobertura de ATT&CK (ATT&CK Navigator).
@@ -71,6 +72,8 @@ Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 
 - Lista de mapas en una selección (`- campo1: … / - campo2: …`) = OR entre ellos. `campo|contains|all` = todos los valores a la vez.
 - Nombres cortos como `cmd` no se buscan como subcadena suelta (casarían con `remotecmd.exe`): al principio (`startswith`) o detrás de `\`.
 - Condiciones defensivas sin test que las aísle (p. ej. `Provider_Name` en 1102/104/7045): se aceptan y se documentan, por coherencia con lo que decidió Matt en la primera regla.
+- Security 4698/4702: la definición completa de la tarea va en XML dentro de `TaskContent` (4698) o `TaskContentNew` (4702), con `<Command>` literal y los `>` del contenido escapados como `&gt;`. Los indicadores se buscan en todo el XML.
+- Anclas YAML (`&nombre` / `*nombre`) para reutilizar una lista de valores en dos campos dentro de la misma regla; pySigma las resuelve sin problema.
 - `windash` expande `-` a `/`, `–`, `—`, `―`. En Splunk cada variante es un OR más (ver `splunk/win_powershell_encoded_command.spl`).
 - Desfase conocido: los nombres de campo Sigma (`Provider_Name`) no siempre coinciden con los del add-on de Windows de Splunk. Se valida en la fase de Splunk real.
 
@@ -78,4 +81,6 @@ Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 
 - 2026-11-12: pipeline montado (validación, conversión a SPL, tests contra EVTX-ATTACK-SAMPLES, CI). Primera técnica completa: T1685.005 (dos reglas). Repo publicado con la CI en verde.
 - 2026-11-12: T1059.001 PowerShell codificado (Image/OriginalFileName + abreviaturas de -EncodedCommand con windash; medium). Tests: 3 logs reales, 6 variantes inventadas, 4 benignos. Nuevo en los casos de test: `attack_events`.
 - 2026-11-12: T1003.001 acceso a LSASS (Sysmon 10, máscaras de volcado conocidas, Defender excluido por ruta; high). 12 logs reales (10 volcados detectados; MalSeclogon = hueco conocido por 0x1410; `ps` de Meterpreter = descubrimiento, 0), 2 variantes, 4 benignos; 4 mutaciones cazadas. 55 tests.
-- 2026-11-12: T1543.003 creación de servicio: dos reglas con la misma lógica (System 7045 y Sysmon 13 `ImagePath`) para `ImagePath` con intérpretes o carpetas de usuario; high. El mutation testing añadió la variante `cmd /c` y eliminó el indicador `\pipe\`. Huecos conocidos: `calc.exe`, AtomicService en carpeta no estándar; fuera de alcance: PsExec y driver vulnerable. 82 tests. Siguiente: T1053.005 (último del MVP).
+- 2026-11-12: T1543.003 creación de servicio: dos reglas con la misma lógica (System 7045 y Sysmon 13 `ImagePath`) para `ImagePath` con intérpretes o carpetas de usuario; high. El mutation testing añadió la variante `cmd /c` y eliminó el indicador `\pipe\`. Huecos conocidos: `calc.exe`, AtomicService en carpeta no estándar; fuera de alcance: PsExec y driver vulnerable. 82 tests.
+- 2026-11-12: T1053.005 tarea programada: dos reglas (Security 4698/4702 con el XML de la tarea; schtasks.exe `/create` o `/change` en Sysmon 1) con los indicadores de servicios; high. Benigno real: un DC actualizando sus tareas (4702). El mutation testing justificó el filtro de verbo y añadió `/change`.
+- **2026-11-12: MVP COMPLETO.** 8 reglas, 5 técnicas, 110 tests (33 logs públicos, 22 variantes de ataque, 25 benignos). CI en verde. Siguiente según el ciclo: una semana de uso o repaso (Matt explica cada regla y el pipeline) y después iterar (mutation testing en la CI, Splunk en Docker, más reglas).
