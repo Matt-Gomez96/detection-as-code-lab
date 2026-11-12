@@ -1,0 +1,35 @@
+# Test case for rules/windows/win_system_eventlog_cleared.yml
+#
+# samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
+#                 expected_matches = exact number of events the rule must match.
+# benign_events:  invented but realistic events that must NOT match.
+
+samples:
+  - source: evtx-attack-samples
+    file: Defense Evasion/DE_104_system_log_cleared.evtx
+    sha256: 5579cdca073ee4864ea82d656aa2d25400b5c1e85b8e688db5d85f6dc558c2af
+    # The System log was cleared: one 104 event.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Defense Evasion/DE_1102_security_log_cleared.evtx
+    sha256: a0615707b547a2ac254688fd725c3c590f62440fc9b7947c2843dd40498a39e8
+    # Clearing the Security log (1102) is a different rule: this one must stay silent.
+    expected_matches: 0
+
+benign_events:
+  - name: Event log service stopped (6006)
+    why: Logged in System on every normal shutdown (classic EventLog provider).
+    event:
+      EventID: 6006
+      Channel: System
+      Provider_Name: EventLog
+      Computer: WS01.lab.local
+
+  - name: Event log service started (6005)
+    why: Logged in System on every boot (classic EventLog provider).
+    event:
+      EventID: 6005
+      Channel: System
+      Provider_Name: EventLog
+      Computer: WS01.lab.local

@@ -1,0 +1,29 @@
+title: Windows Security Event Log Cleared
+id: b298fa6c-9c22-40f3-bb1a-e7313a94aa18
+status: test
+description: |
+    Detects the clearing of the Windows Security event log (event 1102 from the
+    Microsoft-Windows-Eventlog provider). Attackers clear this log to remove evidence
+    of their activity, such as logons, privilege use and process creation.
+    ATT&CK: T1685.005 Clear Windows Event Logs (formerly T1070.001).
+references:
+    - https://attack.mitre.org/techniques/T1685/005/
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.defense-impairment
+    - attack.t1685.005
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 1102
+        # Event IDs are only unique within a provider: tie it to the one that logs clears.
+        Provider_Name: Microsoft-Windows-Eventlog
+    condition: selection
+falsepositives:
+    - Administrators clearing the log during maintenance or troubleshooting
+    - Rebuild, reimaging or decommissioning of a machine
+    - Lab and test environments
+level: high

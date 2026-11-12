@@ -1,0 +1,34 @@
+[project]
+name = "detlab"
+version = "0.1.0"
+description = "Detection-as-Code lab: Sigma rules for Windows, converted to Splunk SPL and tested against real attack logs."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Matt-Gomez96" }]
+requires-python = ">=3.12"
+dependencies = [
+    "evtx>=0.15.0",
+    "pysigma>=2.1.0",
+    "pysigma-backend-splunk>=3.0.0",
+    "pysigma-backend-sqlite>=2.1.1",
+    "pysigma-pipeline-sysmon>=3.0.0",
+    "pysigma-pipeline-windows>=3.0.0",
+    "pyyaml>=6.0.3",
+    "sigma-cli>=4.0.1",
+]
+
+[project.scripts]
+detlab = "detlab.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

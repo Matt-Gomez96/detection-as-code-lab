@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: the workflow only needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  validate-convert-test:
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party actions are pinned to a full commit SHA (supply-chain hardening).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies (exact versions from uv.lock)
+        run: uv sync --locked
+
+      - name: Validate Sigma rules (syntax, conditions, ATT&CK tags)
+        run: uv run sigma check --fail-on-issues rules/
+
+      - name: Check generated Splunk queries are up to date
+        run: uv run detlab convert --check
+
+      - name: Test rules against attack samples and benign events
+        run: uv run pytest
+
+      - name: Publish Splunk queries to the job summary
+        if: always()
+        run: |
+          {
+            echo "## Splunk SPL generated from the Sigma rules"
+            for f in splunk/*.spl; do
+              echo "### \`$f\`"
+              echo '```'
+              cat "$f"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

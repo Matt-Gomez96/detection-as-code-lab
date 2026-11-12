@@ -1,0 +1,9 @@
+# Public datasets used by the tests. Samples are downloaded at test time
+# (never committed), pinned to a commit and verified by SHA-256 in tests/cases/.
+
+evtx-attack-samples:
+  homepage: https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES
+  author: Samir Bousseaden
+  license: GPL-3.0
+  commit: 4ceed2f4706daf601c212a8f91c113dd85349a2c
+  url: https://raw.githubusercontent.com/sbousseaden/EVTX-ATTACK-SAMPLES/{commit}/{file}

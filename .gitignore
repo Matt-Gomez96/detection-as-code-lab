@@ -1,0 +1,18 @@
+# Secrets: never in the repository
+.env
+.env.*
+!.env.example
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Downloaded attack samples (third-party licences, fetched at test time)
+.cache/
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.vscode/

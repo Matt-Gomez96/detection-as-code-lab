@@ -1,0 +1,30 @@
+title: Windows Event Log Cleared
+id: 8a8787da-97ca-4987-b43b-9c2408ac0c8d
+status: test
+description: |
+    Detects the clearing of a Windows event log other than Security (System,
+    Application, PowerShell, Sysmon...), reported as event 104 by the
+    Microsoft-Windows-Eventlog provider in the System log. The name of the cleared
+    log is in the event data (Channel). Attackers clear logs to remove evidence.
+    ATT&CK: T1685.005 Clear Windows Event Logs (formerly T1070.001).
+references:
+    - https://attack.mitre.org/techniques/T1685/005/
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.defense-impairment
+    - attack.t1685.005
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        EventID: 104
+        # Event IDs are only unique within a provider: tie it to the one that logs clears.
+        Provider_Name: Microsoft-Windows-Eventlog
+    condition: selection
+falsepositives:
+    - Administrators clearing logs during maintenance or troubleshooting
+    - Rebuild, reimaging or decommissioning of a machine
+    - Software installers or management tools that reset their own logs
+level: high
