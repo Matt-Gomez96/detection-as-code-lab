@@ -4,6 +4,8 @@ Each rule ``rules/**/<name>.yml`` needs a test case ``tests/cases/<name>.yml`` w
 
 - ``samples``: public attack logs and the exact number of events the rule must
   match in each one (at least one sample with matches > 0);
+- ``attack_events`` (optional): invented attack variants that must match, to cover
+  what the public samples do not;
 - ``benign_events``: realistic events that must not match (at least one).
 """
 
@@ -48,6 +50,10 @@ def case_items(key: str):
 SAMPLE_CASES = [
     pytest.param(rule, sample, id=f"{rule.stem}:{Path(sample['file']).name}")
     for rule, sample in case_items("samples")
+]
+ATTACK_EVENT_CASES = [
+    pytest.param(rule, attack, id=f"{rule.stem}:{attack['name']}")
+    for rule, attack in case_items("attack_events")
 ]
 BENIGN_CASES = [
     pytest.param(rule, benign, id=f"{rule.stem}:{benign['name']}")
@@ -95,6 +101,12 @@ def test_attack_sample(rule: Path, sample: dict):
         f"{len(matches)} of {len(events)} events matched, "
         f"expected {sample['expected_matches']}"
     )
+
+
+@pytest.mark.parametrize("rule, attack", ATTACK_EVENT_CASES)
+def test_attack_event_matches(rule: Path, attack: dict):
+    matches = engine.match(rule, [normalize(attack["event"])])
+    assert len(matches) == 1, f"missed attack variant: {attack['why']}"
 
 
 @pytest.mark.parametrize("rule, benign", BENIGN_CASES)

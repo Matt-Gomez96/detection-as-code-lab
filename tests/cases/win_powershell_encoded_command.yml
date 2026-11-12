@@ -1,0 +1,121 @@
+# Test case for rules/windows/win_powershell_encoded_command.yml
+#
+# samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
+#                 expected_matches = exact number of events the rule must match.
+# attack_events:  invented attack variants that MUST match (coverage the samples lack).
+# benign_events:  invented but realistic events that must NOT match.
+#
+# Invented events are Sysmon process creation (event 1). The Base64 payload decodes
+# to the harmless "Write-Output 'detlab test'".
+
+samples:
+  - source: evtx-attack-samples
+    file: Credential Access/discovery_sysmon_1_iis_pwd_and_config_discovery_appcmd.evtx
+    sha256: 5388d3281a902a1f3cc087697589145b7de6abdbbc0dc716abd6a702c44bb106
+    # Web shell: w3wp.exe (IIS) starts "powershell.exe -nop -noni -enc JABQ...". 1 of 40 events.
+    expected_matches: 1
+
+  - source: evtx-attack-samples
+    file: Lateral Movement/LM_sysmon_psexec_smb_meterpreter.evtx
+    sha256: 18ffdda9c24e593d6b1414b6e05c7f7a5dbffb8588a387c165431b61ab52d76f
+    # Malicious PowerShell, but with -c (plain command + GZip), not -EncodedCommand:
+    # out of scope for this rule.
+    expected_matches: 0
+
+  - source: evtx-attack-samples
+    file: AutomatedTestingTools/PanacheSysmon_vs_AtomicRedTeam01.evtx
+    sha256: 6903dff9f218fa027c704c8c445b74e08b952c8d71be79bd0327f1e792d4aa01
+    # 565 events from Atomic Red Team, several PowerShell runs, none encoded.
+    expected_matches: 0
+
+attack_events:
+  - name: Shortest abbreviation (-e)
+    why: PowerShell accepts any unambiguous abbreviation of -EncodedCommand.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: powershell.exe -nop -w hidden -e VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA==
+
+  - name: Full parameter name (-EncodedCommand)
+    why: The documented long form.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: powershell.exe -NoProfile -EncodedCommand VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA==
+
+  - name: Slash instead of dash (/enc)
+    why: powershell.exe also accepts "/" as the parameter prefix.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: powershell.exe /enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA==
+
+  - name: Unicode en dash (–enc)
+    why: Dash look-alikes are accepted too; the windash modifier covers them.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: powershell.exe –enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA==
+
+  - name: PowerShell 7 with the -ec alias
+    why: pwsh.exe is PowerShell 7; -ec is an alias of -EncodedCommand.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Program Files\PowerShell\7\pwsh.exe
+      OriginalFileName: pwsh.dll
+      CommandLine: '"C:\Program Files\PowerShell\7\pwsh.exe" -ec VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA=='
+
+  - name: Renamed PowerShell binary
+    why: The attacker copied powershell.exe to another name; OriginalFileName still says PowerShell.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Users\Public\svcupdate.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: svcupdate.exe -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAGQAZQB0AGwAYQBiACAAdABlAHMAdAAnAA==
+
+benign_events:
+  - name: ExecutionPolicy written in full
+    why: -ExecutionPolicy also starts with "-e"; the space after "-e" in the rule keeps it out.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\backup.ps1
+
+  - name: ExecutionPolicy abbreviated (-ep / -exec)
+    why: Very common in admin scripts and installers.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: powershell.exe -ep bypass -exec bypass -NoProfile -File C:\Scripts\inventory.ps1
+
+  - name: certutil -encode
+    why: Another binary with " -encode " in its command line; the process filter keeps it out.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\certutil.exe
+      OriginalFileName: CertUtil.exe
+      CommandLine: certutil.exe -encode C:\Temp\report.txt C:\Temp\report.b64
+
+  - name: Admin running a plain command
+    why: Normal administration with -Command and readable text.
+    event:
+      EventID: 1
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+      OriginalFileName: PowerShell.EXE
+      CommandLine: powershell.exe -NoProfile -Command Get-Service -Name Spooler

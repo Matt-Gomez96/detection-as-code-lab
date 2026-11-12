@@ -67,6 +67,12 @@ def cmd_sql(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows consoles default to a legacy code page; rules and logs contain Unicode
+    # (e.g. the en/em dashes produced by the `windash` modifier).
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(prog="detlab", description="Detection-as-Code lab tooling")
     commands = parser.add_subparsers(dest="command", required=True)
 

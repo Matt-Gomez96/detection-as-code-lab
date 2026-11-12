@@ -1,0 +1,44 @@
+title: PowerShell Executed With an Encoded Command
+id: b4e65e87-92e1-4d6b-a44a-c61cfd8147f9
+status: test
+description: |
+    Detects PowerShell started with the -EncodedCommand parameter, or any of its
+    abbreviations (-e, -en, -enc, -enco...) and its -ec alias, which runs a
+    Base64-encoded script. Attackers use it to hide the real command from analysts
+    and from simple string-based detections. Renamed PowerShell binaries are also
+    detected through OriginalFileName.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+    - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_exe
+author: Matt-Gomez96
+date: 2026-11-12
+tags:
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_img:
+        - Image|endswith:
+              - '\powershell.exe'
+              - '\pwsh.exe'
+        # Name stored inside the binary: still PowerShell if the file is renamed.
+        - OriginalFileName:
+              - 'PowerShell.EXE'
+              - 'pwsh.dll'
+    selection_cli:
+        # Any abbreviation of -EncodedCommand plus the -ec alias. "windash" also
+        # matches "/" and Unicode dashes instead of "-". The space after "-e" keeps
+        # -ep / -ex (-ExecutionPolicy) out.
+        CommandLine|windash|contains:
+            - ' -e '
+            - ' -en '
+            - ' -enc '
+            - ' -enco'
+            - ' -ec '
+    condition: all of selection_*
+falsepositives:
+    - Management and deployment agents that run scripts with -EncodedCommand (e.g. SCCM/MECM, Azure Guest Configuration); tune per environment by parent process path
+    - Administrator scripts that encode complex arguments
+level: medium
