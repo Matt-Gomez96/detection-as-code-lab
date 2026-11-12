@@ -4,6 +4,8 @@
 #                 expected_matches = exact number of events the rule must match.
 # attack_events:  invented attack variants that MUST match (coverage the samples lack).
 # benign_events:  invented but realistic events that must NOT match.
+# mutations:      deliberately broken versions of the rule; at least one check above
+#                 must fail for each (see src/detlab/mutation.py).
 #
 # All events are System 7045 "A service was installed in the system".
 
@@ -100,3 +102,45 @@ benign_events:
       ImagePath: C:\Program Files\Vendor\remotecmd.exe
       StartType: auto start
       AccountName: LocalSystem
+
+mutations:
+  - name: cmd.exe as a loose substring
+    why: Would match legitimate programs such as C:\Program Files\Vendor\remotecmd.exe.
+    edits:
+      - replace: '\cmd.exe'
+        with: 'cmd.exe'
+
+  - name: No "cmd at the start" branch
+    why: Attack tools often write a bare "cmd /c ..." with no path.
+    edits:
+      - delete: 'ImagePath|startswith'
+
+  - name: No user-writable folders
+    why: Malware installs its own binary as a service from Public, AppData, Temp...
+    edits:
+      - delete: '\Users\Public\'
+      - delete: '\AppData\'
+      - delete: '\Temp\'
+      - delete: '\Desktop\'
+      - delete: '\Downloads\'
+      - delete: '\PerfLogs\'
+
+  - name: No PowerShell or %COMSPEC%
+    why: Metasploit and Cobalt Strike services run %COMSPEC% and powershell.
+    edits:
+      - delete: '%COMSPEC%'
+      - delete: 'powershell'
+
+  - name: Any service, whatever it runs
+    why: Installing services is routine; only what the service runs is suspicious.
+    edits:
+      - replace: 'condition: selection_event and selection_image_path'
+        with: 'condition: selection_event'
+
+  - name: No Provider_Name condition
+    why: Event IDs are only unique within a provider.
+    survives: >-
+      Defensive condition, kept on purpose: no public sample or realistic event has a
+      7045 from another provider in the System log, so no test can tell the difference.
+    edits:
+      - delete: 'Provider_Name: Service Control Manager'

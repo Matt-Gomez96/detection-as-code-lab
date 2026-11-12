@@ -4,6 +4,8 @@
 #                 expected_matches = exact number of events the rule must match.
 # attack_events:  invented attack variants that MUST match (coverage the samples lack).
 # benign_events:  invented but realistic events that must NOT match.
+# mutations:      deliberately broken versions of the rule; at least one check above
+#                 must fail for each (see src/detlab/mutation.py).
 #
 # Invented events are Sysmon process creation (event 1). The Base64 payload decodes
 # to the harmless "Write-Output 'detlab test'".
@@ -119,3 +121,31 @@ benign_events:
       Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
       OriginalFileName: PowerShell.EXE
       CommandLine: powershell.exe -NoProfile -Command Get-Service -Name Spooler
+
+mutations:
+  - name: No space after -e
+    why: Without it, -ep / -ex (-ExecutionPolicy) and the -eq operator also match.
+    edits:
+      - replace: "' -e '"
+        with: "' -e'"
+
+  - name: Shortest abbreviation forgotten (-e)
+    why: PowerShell accepts any unambiguous abbreviation of -EncodedCommand.
+    edits:
+      - delete: "' -e '"
+
+  - name: No windash (only "-")
+    why: PowerShell also accepts "/" and Unicode dashes before a parameter.
+    edits:
+      - replace: 'CommandLine|windash|contains'
+        with: 'CommandLine|contains'
+
+  - name: No OriginalFileName (renamed PowerShell missed)
+    why: Copying powershell.exe under another name is a common evasion.
+    edits:
+      - delete: 'OriginalFileName:'
+
+  - name: Any process, not only PowerShell
+    why: Other tools have similar parameters (certutil -encode contains " -enco").
+    edits:
+      - delete: 'selection_img:'

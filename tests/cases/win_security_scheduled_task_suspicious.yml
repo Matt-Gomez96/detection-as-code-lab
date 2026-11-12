@@ -4,6 +4,8 @@
 #                 expected_matches = exact number of events the rule must match.
 # attack_events:  invented attack variants that MUST match (coverage the samples lack).
 # benign_events:  invented but realistic events that must NOT match.
+# mutations:      deliberately broken versions of the rule; at least one check above
+#                 must fail for each (see src/detlab/mutation.py).
 #
 # Events are Security 4698 (task created, XML in TaskContent) or 4702 (task updated,
 # XML in TaskContentNew). Invented XML is shortened to the parts that matter.
@@ -82,3 +84,51 @@ benign_events:
       Provider_Name: Microsoft-Windows-Security-Auditing
       TaskName: \VendorRemoteCmd
       TaskContent: '<?xml version="1.0" encoding="UTF-16"?><Task version="1.2"><Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers><Actions Context="Author"><Exec><Command>C:\Program Files\Vendor\remotecmd.exe</Command></Exec></Actions></Task>'
+
+mutations:
+  - name: cmd as a loose substring
+    why: Would match legitimate programs such as C:\Program Files\Vendor\remotecmd.exe.
+    edits:
+      - replace: "- '<Command>cmd'"
+        with: "- 'cmd'"
+
+  - name: No cmd conditions
+    why: Remote task creation (Impacket atexec) runs "cmd.exe /C ...".
+    edits:
+      - delete: "- '<Command>cmd'"
+      - delete: '<Command>"cmd'
+      - delete: '\cmd.exe'
+
+  - name: Only created tasks (no 4702)
+    why: Attackers also hijack existing tasks by changing their action.
+    edits:
+      - delete: '- 4702'
+
+  - name: Only TaskContent (no TaskContentNew)
+    why: 4702 carries the new task definition in TaskContentNew.
+    edits:
+      - delete: 'TaskContentNew|contains'
+
+  - name: No user-writable folders
+    why: Malware schedules its own binary from Public, AppData, Temp...
+    edits:
+      - delete: '\Users\Public\'
+      - delete: '\AppData\'
+      - delete: '\Temp\'
+      - delete: '\Desktop\'
+      - delete: '\Downloads\'
+      - delete: '\PerfLogs\'
+
+  - name: No PowerShell or %COMSPEC%
+    why: Scheduling a hidden PowerShell command is a common persistence.
+    edits:
+      - delete: '%COMSPEC%'
+      - delete: 'powershell'
+
+  - name: No Provider_Name condition
+    why: Event IDs are only unique within a provider.
+    survives: >-
+      Defensive condition, kept on purpose: no public sample or realistic event has a
+      4698/4702 from another provider in the Security log, so no test can tell the difference.
+    edits:
+      - delete: 'Provider_Name: Microsoft-Windows-Security-Auditing'

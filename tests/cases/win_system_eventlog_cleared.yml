@@ -3,6 +3,8 @@
 # samples:        public attack logs, downloaded and verified by SHA-256 (see datasets.yml).
 #                 expected_matches = exact number of events the rule must match.
 # benign_events:  invented but realistic events that must NOT match.
+# mutations:      deliberately broken versions of the rule; at least one check above
+#                 must fail for each (see src/detlab/mutation.py).
 
 samples:
   - source: evtx-attack-samples
@@ -33,3 +35,24 @@ benign_events:
       Channel: System
       Provider_Name: EventLog
       Computer: WS01.lab.local
+
+mutations:
+  - name: Wrong event ID (1102, copied from the Security rule)
+    why: The System log reports clears with 104, not 1102.
+    edits:
+      - replace: 'EventID: 104'
+        with: 'EventID: 1102'
+
+  - name: Wrong log (Security instead of System)
+    why: 104 is written to the System log, whatever log was cleared.
+    edits:
+      - replace: 'service: system'
+        with: 'service: security'
+
+  - name: No Provider_Name condition
+    why: Event IDs are only unique within a provider.
+    survives: >-
+      Defensive condition, kept on purpose: no public sample or realistic event has a
+      104 from another provider in the System log, so no test can tell the difference.
+    edits:
+      - delete: 'Provider_Name: Microsoft-Windows-Eventlog'

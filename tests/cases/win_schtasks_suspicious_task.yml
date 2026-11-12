@@ -4,6 +4,8 @@
 #                 expected_matches = exact number of events the rule must match.
 # attack_events:  invented attack variants that MUST match (coverage the samples lack).
 # benign_events:  invented but realistic events that must NOT match.
+# mutations:      deliberately broken versions of the rule; at least one check above
+#                 must fail for each (see src/detlab/mutation.py).
 #
 # All events are Sysmon process creation (event 1) of schtasks.exe.
 
@@ -124,3 +126,55 @@ benign_events:
       Image: C:\Windows\System32\schtasks.exe
       OriginalFileName: schtasks.exe
       CommandLine: 'schtasks /create /tn VendorRemote /tr "C:\Program Files\Vendor\remotecmd.exe" /sc onstart /ru SYSTEM'
+
+mutations:
+  - name: cmd as a loose substring
+    why: Would match legitimate programs such as C:\Program Files\Vendor\remotecmd.exe.
+    edits:
+      - replace: "- ' cmd'"
+        with: "- 'cmd'"
+
+  - name: No cmd conditions
+    why: Attackers schedule "cmd /c ..." commands.
+    edits:
+      - delete: "- ' cmd'"
+      - delete: "- '\"cmd'"
+      - delete: '\cmd.exe'
+
+  - name: No verb filter (any schtasks command)
+    why: /run, /query or /delete of a task whose name mentions an indicator is not a new action.
+    edits:
+      - delete: 'selection_verb:'
+
+  - name: Only /create (no /change)
+    why: Attackers also hijack existing tasks with /change.
+    edits:
+      - delete: "' -change'"
+
+  - name: Any process, not only schtasks.exe
+    why: Its parent "cmd /c schtasks ..." would raise a second alert for the same task.
+    edits:
+      - delete: 'selection_img:'
+
+  - name: No mshta
+    why: mshta running a remote script is a common scheduled payload.
+    edits:
+      - delete: 'mshta'
+
+  - name: No user-writable folders
+    why: Malware schedules its own binary from Public, AppData, Temp...
+    # The closing quote tells each list entry apart from the "/xml C:\Users\...\AppData\
+    # Local\Temp\x.xml" example in the rule's description.
+    edits:
+      - delete: \Users\Public\'
+      - delete: \AppData\'
+      - delete: \Temp\'
+      - delete: \Desktop\'
+      - delete: \Downloads\'
+      - delete: \PerfLogs\'
+
+  - name: No PowerShell or %COMSPEC%
+    why: Scheduling a hidden PowerShell command is a common persistence.
+    edits:
+      - delete: '%COMSPEC%'
+      - delete: 'powershell'

@@ -4,8 +4,11 @@
 #                 expected_matches = exact number of events the rule must match.
 # attack_events:  invented attack variants that MUST match (coverage the samples lack).
 # benign_events:  invented but realistic events that must NOT match.
+# mutations:      deliberately broken versions of the rule; at least one check above
+#                 must fail for each (see src/detlab/mutation.py).
 #
-# All events are Sysmon registry value set (event 13) on a service's ImagePath.
+# All events are Sysmon registry value set (event 13) on a service key, almost all
+# on its ImagePath.
 
 samples:
   - source: evtx-attack-samples
@@ -121,3 +124,51 @@ benign_events:
       Image: C:\Windows\system32\services.exe
       TargetObject: HKLM\System\CurrentControlSet\Services\VendorRemoteCmd\ImagePath
       Details: C:\Program Files\Vendor\remotecmd.exe
+
+  - name: Service description that mentions PowerShell
+    why: Only ImagePath says what a service runs; a description is just text.
+    event:
+      EventID: 13
+      Channel: Microsoft-Windows-Sysmon/Operational
+      Image: C:\Windows\system32\services.exe
+      TargetObject: HKLM\System\CurrentControlSet\Services\ContosoAgent\Description
+      Details: Contoso Agent. Runs the inventory scripts with PowerShell.
+
+mutations:
+  - name: cmd.exe as a loose substring
+    why: Would match legitimate programs such as C:\Program Files\Vendor\remotecmd.exe.
+    edits:
+      - replace: '\cmd.exe'
+        with: 'cmd.exe'
+
+  - name: No "cmd at the start" branch
+    why: Attack tools often write a bare "cmd /c ..." with no path.
+    edits:
+      - delete: 'Details|startswith'
+
+  - name: Only the usual CurrentControlSet
+    why: An attacker can write straight into ControlSet001.
+    edits:
+      - replace: "- 'ControlSet'"
+        with: "- 'CurrentControlSet'"
+
+  - name: Any value of a service key, not only ImagePath
+    why: Other service values (Description, FailureCommand...) are not what the service runs.
+    edits:
+      - delete: 'TargetObject|endswith'
+
+  - name: No user-writable folders
+    why: Malware installs its own binary as a service from Public, AppData, Temp...
+    edits:
+      - delete: '\Users\Public\'
+      - delete: '\AppData\'
+      - delete: '\Temp\'
+      - delete: '\Desktop\'
+      - delete: '\Downloads\'
+      - delete: '\PerfLogs\'
+
+  - name: No PowerShell or %COMSPEC%
+    why: Metasploit and Cobalt Strike services run %COMSPEC% and powershell.
+    edits:
+      - delete: '%COMSPEC%'
+      - delete: 'powershell'

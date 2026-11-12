@@ -10,6 +10,7 @@ runs anywhere Python runs: on a laptop and in GitHub Actions.
 
 from __future__ import annotations
 
+import copy
 import re
 import sqlite3
 from collections.abc import Iterable
@@ -25,14 +26,21 @@ TABLE = "logs"  # table name used by the pySigma sqlite backend
 _MISSING_COLUMN = re.compile(r"no such column: (.+)$")
 
 
-def load_rule(rule_path: str | Path) -> SigmaCollection:
-    return SigmaCollection.from_yaml(Path(rule_path).read_text(encoding="utf-8"))
+Rule = str | Path | SigmaCollection  # a rule file, or a rule already loaded
 
 
-def to_sql(rule_path: str | Path) -> list[str]:
-    """Convert a Sigma rule file to SQLite queries (one per rule in the file)."""
+def load_rule(rule: Rule) -> SigmaCollection:
+    if isinstance(rule, SigmaCollection):
+        # Converting applies the processing pipeline to the rule object itself, so a
+        # second conversion of the same object would apply it twice. Convert a copy.
+        return copy.deepcopy(rule)
+    return SigmaCollection.from_yaml(Path(rule).read_text(encoding="utf-8"))
+
+
+def to_sql(rule: Rule) -> list[str]:
+    """Convert a Sigma rule to SQLite queries (one per rule in the file)."""
     backend = sqliteBackend(processing_pipeline=local_pipeline())
-    return backend.convert(load_rule(rule_path))
+    return backend.convert(load_rule(rule))
 
 
 def _quote(name: str) -> str:
@@ -77,12 +85,12 @@ def _run(con: sqlite3.Connection, query: str) -> list[Event]:
     raise RuntimeError(f"Too many missing columns for query: {query}")
 
 
-def match(rule_path: str | Path, events: Iterable[Event]) -> list[Event]:
-    """Return the events matched by the rule(s) in ``rule_path``."""
+def match(rule: Rule, events: Iterable[Event]) -> list[Event]:
+    """Return the events matched by the rule(s) in ``rule``."""
     con = _load(events)
     try:
         matches: list[Event] = []
-        for query in to_sql(rule_path):
+        for query in to_sql(rule):
             matches += _run(con, query)
         return [{k: v for k, v in event.items() if v is not None} for event in matches]
     finally:

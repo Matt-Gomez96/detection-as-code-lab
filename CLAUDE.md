@@ -18,7 +18,6 @@ Un repositorio que demuestra el ciclo completo de detection engineering: reglas 
 - README en inglés que se entiende en 2 minutos.
 
 ## Fuera del MVP (fases siguientes)
-- Mutation testing en la CI: un apartado `mutations:` en cada caso de test y un test que exija que todas se cacen (hoy es un script fuera del repo).
 - Splunk real en Docker para probar el SPL generado (y cerrar el desfase de nombres de campo Sigma ↔ Splunk).
 - Más reglas y fuentes de logs (Sysmon, Linux, cloud).
 - Mapa de cobertura de ATT&CK (ATT&CK Navigator).
@@ -41,11 +40,12 @@ Solo datasets públicos; **nunca** datos de una empresa. Las muestras no se sube
 ## Estructura
 ```
 rules/windows/*.yml         reglas Sigma
-tests/cases/<regla>.yml     caso de test de cada regla (muestras + benignos)
+tests/cases/<regla>.yml     caso de test de cada regla (muestras, variantes, benignos, mutaciones)
 tests/test_rules.py         tests genéricos para todas las reglas
 tests/test_engine.py        tests del motor (aplanado de eventos, SQLite)
+tests/test_mutation.py      tests de las ediciones y veredictos de las mutaciones
 splunk/<regla>.spl          SPL generado; se commitea y la CI falla si está desactualizado
-src/detlab/                 events, engine, convert, samples, pipelines, cli
+src/detlab/                 events, engine, convert, samples, pipelines, mutation, cli
 datasets.yml                origen, licencia y commit fijado de cada dataset
 .github/workflows/ci.yml    CI
 ```
@@ -54,8 +54,8 @@ datasets.yml                origen, licencia y commit fijado de cada dataset
 1. `uv run detlab show <log.evtx>` para ver los campos de los eventos.
 2. Escribir `rules/windows/<nombre>.yml` (UUID nuevo, tags de ATT&CK vigentes).
 3. Crear `tests/cases/<nombre>.yml`: muestras (`sha256` + `expected_matches`), `attack_events` opcionales (variantes que deben disparar) y `benign_events` (`name`, `why`, `event`). Los eventos inventados llevan `Channel` y `EventID` reales (p. ej. Sysmon 1), porque el pipeline los exige.
-4. `uv run detlab convert`, `uv run sigma check --fail-on-issues rules/`, `uv run pytest`.
-5. *Mutation testing*: estropear la regla a propósito (quitar un filtro, un indicador, un espacio…) y comprobar que algún test falla. Si ninguno falla, o falta un test (se añade) o el indicador no aporta nada (se quita). Por ahora se hace con un script fuera del repo; integrarlo en la CI es una idea pendiente.
+4. Añadir `mutations:` al caso: una por decisión de diseño de la regla (filtro, exclusión, indicador clave, espacio, `windash`…), cada una con `name`, `why` y `edits`. `delete: <texto>` borra la línea que lo contiene y todo lo que cuelga de ella; `replace: <texto>` + `with: <texto>` lo sustituye. El texto tiene que aparecer **una sola vez** en la regla (cuidado con la descripción y los comentarios).
+5. `uv run detlab convert`, `uv run sigma check --fail-on-issues rules/`, `uv run pytest`. `uv run detlab mutate <regla>` dice qué comprobación caza cada mutación. Si una sobrevive, o falta un test (se añade) o esa parte de la regla no aporta nada (se quita). Si no se puede cazar a propósito, se declara con `survives: <motivo>`.
 
 Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 MB) en una carpeta temporal y recorrer los `.evtx` con `detlab.events.load_evtx` buscando el patrón.
 
@@ -71,7 +71,8 @@ Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 
 - `registry_set` → Sysmon evento 13 (`TargetObject` = clave, `Details` = valor). Para claves de servicio se usa `ControlSet` y no solo `CurrentControlSet`, porque se puede escribir en `ControlSet001`.
 - Lista de mapas en una selección (`- campo1: … / - campo2: …`) = OR entre ellos. `campo|contains|all` = todos los valores a la vez.
 - Nombres cortos como `cmd` no se buscan como subcadena suelta (casarían con `remotecmd.exe`): al principio (`startswith`) o detrás de `\`.
-- Condiciones defensivas sin test que las aísle (p. ej. `Provider_Name` en 1102/104/7045): se aceptan y se documentan, por coherencia con lo que decidió Matt en la primera regla.
+- Condiciones defensivas sin test que las aísle (`Provider_Name` en 1102, 104, 7045 y 4698/4702): se aceptan, por coherencia con lo que decidió Matt en la primera regla, y quedan como mutaciones con `survives:`.
+- pySigma aplica el pipeline **sobre el propio objeto de la regla** al convertir: convertir dos veces el mismo `SigmaCollection` repite las condiciones. `engine.load_rule` convierte una copia; hay un test que lo vigila.
 - Security 4698/4702: la definición completa de la tarea va en XML dentro de `TaskContent` (4698) o `TaskContentNew` (4702), con `<Command>` literal y los `>` del contenido escapados como `&gt;`. Los indicadores se buscan en todo el XML.
 - Anclas YAML (`&nombre` / `*nombre`) para reutilizar una lista de valores en dos campos dentro de la misma regla; pySigma las resuelve sin problema.
 - `windash` expande `-` a `/`, `–`, `—`, `―`. En Splunk cada variante es un OR más (ver `splunk/win_powershell_encoded_command.spl`).
@@ -84,3 +85,4 @@ Para encontrar muestras: clonar EVTX-ATTACK-SAMPLES (`git clone --depth 1`, ~46 
 - 2026-11-12: T1543.003 creación de servicio: dos reglas con la misma lógica (System 7045 y Sysmon 13 `ImagePath`) para `ImagePath` con intérpretes o carpetas de usuario; high. El mutation testing añadió la variante `cmd /c` y eliminó el indicador `\pipe\`. Huecos conocidos: `calc.exe`, AtomicService en carpeta no estándar; fuera de alcance: PsExec y driver vulnerable. 82 tests.
 - 2026-11-12: T1053.005 tarea programada: dos reglas (Security 4698/4702 con el XML de la tarea; schtasks.exe `/create` o `/change` en Sysmon 1) con los indicadores de servicios; high. Benigno real: un DC actualizando sus tareas (4702). El mutation testing justificó el filtro de verbo y añadió `/change`.
 - **2026-11-12: MVP COMPLETO.** 8 reglas, 5 técnicas, 110 tests (33 logs públicos, 22 variantes de ataque, 25 benignos). CI en verde. Siguiente según el ciclo: una semana de uso o repaso (Matt explica cada regla y el pipeline) y después iterar (mutation testing en la CI, Splunk en Docker, más reglas).
+- 2026-11-12: *mutation testing* en la CI. Cada caso de test declara sus `mutations:` (43 en total; 4 supervivientes declaradas, las de `Provider_Name`) y `test_mutation_is_killed` exige que cada una la cace alguna comprobación. Nuevo comando `detlab mutate`. Hallazgos: el filtro `\ImagePath` de la regla de registro no tenía test (se añadió un benigno: la `Description` de un servicio) y pySigma modifica la regla al convertirla (corregido en el motor). 168 tests.

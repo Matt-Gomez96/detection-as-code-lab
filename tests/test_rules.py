@@ -6,19 +6,24 @@ Each rule ``rules/**/<name>.yml`` needs a test case ``tests/cases/<name>.yml`` w
   match in each one (at least one sample with matches > 0);
 - ``attack_events`` (optional): invented attack variants that must match, to cover
   what the public samples do not;
-- ``benign_events``: realistic events that must not match (at least one).
+- ``benign_events``: realistic events that must not match (at least one);
+- ``mutations``: deliberately broken versions of the rule that the checks above
+  must notice (at least one; see ``detlab.mutation``).
 """
 
 from __future__ import annotations
 
+import functools
 import re
 from pathlib import Path
 
 import pytest
 import yaml
 
-from detlab import convert, engine, samples
-from detlab.events import load_events, normalize
+from sigma.collection import SigmaCollection
+
+from detlab import convert, engine, mutation, samples
+from detlab.events import Event, load_events, normalize
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES = sorted((ROOT / "rules").rglob("*.yml"))
@@ -37,6 +42,16 @@ def read_yaml(path: Path) -> dict:
 
 def case_path(rule: Path) -> Path:
     return CASES / f"{rule.stem}.yml"
+
+
+@functools.cache
+def _load_sample(source: str, file: str, sha256: str) -> tuple[Event, ...]:
+    return tuple(load_events(samples.fetch(ROOT, source, file, sha256)))
+
+
+def sample_events(sample: dict) -> list[Event]:
+    """Events of one ``samples`` entry, parsed once per test run."""
+    return list(_load_sample(sample["source"], sample["file"], sample["sha256"]))
 
 
 def case_items(key: str):
@@ -58,6 +73,10 @@ ATTACK_EVENT_CASES = [
 BENIGN_CASES = [
     pytest.param(rule, benign, id=f"{rule.stem}:{benign['name']}")
     for rule, benign in case_items("benign_events")
+]
+MUTATION_CASES = [
+    pytest.param(rule, mutant, id=f"{rule.stem}:{mutant['name']}")
+    for rule, mutant in case_items("mutations")
 ]
 
 
@@ -84,6 +103,7 @@ def test_rule_has_test_case(rule: Path):
         "needs at least one attack sample with expected_matches > 0"
     )
     assert case.get("benign_events"), "needs at least one benign event"
+    assert case.get("mutations"), "needs at least one mutation"
 
 
 def test_every_test_case_has_a_rule():
@@ -94,8 +114,7 @@ def test_every_test_case_has_a_rule():
 
 @pytest.mark.parametrize("rule, sample", SAMPLE_CASES)
 def test_attack_sample(rule: Path, sample: dict):
-    log = samples.fetch(ROOT, sample["source"], sample["file"], sample["sha256"])
-    events = load_events(log)
+    events = sample_events(sample)
     matches = engine.match(rule, events)
     assert len(matches) == sample["expected_matches"], (
         f"{len(matches)} of {len(events)} events matched, "
@@ -113,6 +132,20 @@ def test_attack_event_matches(rule: Path, attack: dict):
 def test_benign_event_does_not_match(rule: Path, benign: dict):
     matches = engine.match(rule, [normalize(benign["event"])])
     assert not matches, f"false positive: {benign['why']}"
+
+
+@pytest.mark.parametrize("rule, mutant", MUTATION_CASES)
+def test_mutation_is_killed(rule: Path, mutant: dict):
+    """The broken rule must make at least one check of the test case fail."""
+    broken_text = mutation.apply(rule.read_text(encoding="utf-8"), mutant["edits"])
+    try:
+        broken = SigmaCollection.from_yaml(broken_text)
+        engine.to_sql(broken)
+    except Exception as error:  # noqa: BLE001 - any error means the mutant is not a valid rule
+        pytest.fail(f"the mutated rule is not valid Sigma, fix the edits: {error!r}")
+    failures = mutation.case_failures(broken, read_yaml(case_path(rule)), sample_events)
+    problem = mutation.problem(mutant, failures)
+    assert problem is None, problem
 
 
 def test_splunk_queries_are_up_to_date():

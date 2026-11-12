@@ -4,6 +4,8 @@
 #                 expected_matches = exact number of events the rule must match.
 # attack_events:  invented attack variants that MUST match (coverage the samples lack).
 # benign_events:  invented but realistic events that must NOT match.
+# mutations:      deliberately broken versions of the rule; at least one check above
+#                 must fail for each (see src/detlab/mutation.py).
 #
 # All events are Sysmon process access (event 10).
 
@@ -138,3 +140,31 @@ benign_events:
       SourceImage: C:\Tools\procdump64.exe
       TargetImage: C:\Windows\system32\notepad.exe
       GrantedAccess: '0x1fffff'
+
+mutations:
+  - name: Defender excluded by file name only
+    why: Any tool renamed to MsMpEng.exe would be excluded too.
+    edits:
+      - delete: 'SourceImage|startswith'
+
+  - name: No Defender exclusion
+    why: Defender scans LSASS all the time; the rule would fire on every scan.
+    edits:
+      - replace: 'condition: selection and not 1 of filter_main_*'
+        with: 'condition: selection'
+
+  - name: Any target process, not only LSASS
+    why: Dumping other processes (procdump on an app) is routine troubleshooting.
+    edits:
+      - delete: 'TargetImage|endswith'
+
+  - name: 0x1410 added to the masks
+    why: 0x1410 is common in legitimate monitoring software (WMI); too noisy for high.
+    edits:
+      - replace: "- '0x1010'"
+        with: "- '0x1410'\n            - '0x1010'"
+
+  - name: Classic mimikatz mask forgotten (0x1010)
+    why: 0x1010 (read memory + query limited information) is what sekurlsa requests.
+    edits:
+      - delete: "'0x1010'"

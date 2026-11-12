@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sigma.collection import SigmaCollection
+
 from detlab import engine
 from detlab.events import flatten_record
 
@@ -95,3 +97,12 @@ def test_columns_differing_only_in_case(tmp_path):
         {"EventID": 5156, "Channel": "Security", "ProcessID": 4},
     ]
     assert engine.match(rule, events) == []
+
+
+def test_a_loaded_rule_can_be_converted_many_times():
+    # pySigma applies the processing pipeline to the rule object while converting;
+    # the engine must convert a copy, or the log condition would be added again.
+    rule = SigmaCollection.from_yaml(RULE)
+    first, second = engine.to_sql(rule), engine.to_sql(rule)
+    assert first == second
+    assert second[0].count("Channel='Security'") == 1

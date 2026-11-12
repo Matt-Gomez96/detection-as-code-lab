@@ -4,6 +4,8 @@
   show LOG [--limit N]   Print the events of a log as flat fields (to design rules).
   run RULE LOG           Run a Sigma rule against a log and print the matches.
   sql RULE               Print the SQL the local engine runs for a rule.
+  mutate RULE            Break the rule as its test case says and show which checks
+                         catch each mutation.
 """
 
 from __future__ import annotations
@@ -13,7 +15,10 @@ import json
 import sys
 from pathlib import Path
 
-from detlab import convert, engine
+import yaml
+from sigma.collection import SigmaCollection
+
+from detlab import convert, engine, mutation, samples
 from detlab.events import load_events
 
 
@@ -66,6 +71,41 @@ def cmd_sql(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mutate(args: argparse.Namespace) -> int:
+    root = Path.cwd()
+    case_file = root / "tests" / "cases" / f"{args.rule.stem}.yml"
+    case = yaml.safe_load(case_file.read_text(encoding="utf-8")) or {}
+    rule_text = args.rule.read_text(encoding="utf-8")
+    cache: dict[str, list[dict]] = {}
+
+    def sample_events(sample: dict) -> list[dict]:
+        if sample["file"] not in cache:
+            log = samples.fetch(root, sample["source"], sample["file"], sample["sha256"])
+            cache[sample["file"]] = load_events(log)
+        return cache[sample["file"]]
+
+    mutants = case.get("mutations") or []
+    problems = 0
+    for mutant in mutants:
+        broken = SigmaCollection.from_yaml(mutation.apply(rule_text, mutant["edits"]))
+        failures = mutation.case_failures(broken, case, sample_events)
+        problem = mutation.problem(mutant, failures)
+        problems += problem is not None
+        if problem:
+            status = "PROBLEM"
+        else:
+            status = "survives, as expected" if "survives" in mutant else "killed"
+        print(f"[{status}] {mutant['name']}")
+        for failure in failures:
+            print(f"    caught by: {failure}")
+        if "survives" in mutant and not failures:
+            print(f"    {mutant['survives']}")
+        if problem:
+            print(f"    {problem}")
+    print(f"# {len(mutants)} mutations, {problems} with problems", file=sys.stderr)
+    return 1 if problems else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to a legacy code page; rules and logs contain Unicode
     # (e.g. the en/em dashes produced by the `windash` modifier).
@@ -94,6 +134,10 @@ def main(argv: list[str] | None = None) -> int:
     p = commands.add_parser("sql", help="print the SQL used by the local engine")
     p.add_argument("rule", type=Path)
     p.set_defaults(func=cmd_sql)
+
+    p = commands.add_parser("mutate", help="show which checks catch each mutation of a rule")
+    p.add_argument("rule", type=Path)
+    p.set_defaults(func=cmd_mutate)
 
     args = parser.parse_args(argv)
     return args.func(args)
